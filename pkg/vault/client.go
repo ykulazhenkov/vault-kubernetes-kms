@@ -2,6 +2,7 @@ package vault
 
 import (
 	"fmt"
+	"net/http"
 	"net/url"
 
 	customHTTP "github.com/FalcoSuessgott/vault-kubernetes-kms/pkg/http"
@@ -36,7 +37,13 @@ type Option func(*Client) error
 // NewClient returns a new vault client wrapper.
 func NewClient(opts ...Option) (*Client, error) {
 	cfg := api.DefaultConfig()
-	cfg.HttpClient = customHTTP.New()
+	httpClient := customHTTP.New()
+	if roundTripper, ok := httpClient.Transport.(*customHTTP.RoundTripper); ok {
+		if transport, ok := cfg.HttpClient.Transport.(*http.Transport); ok {
+			roundTripper.Transport = transport.Clone()
+		}
+	}
+	cfg.HttpClient = httpClient
 
 	c, err := api.NewClient(cfg)
 	if err != nil {

@@ -2,12 +2,19 @@ package vault
 
 import (
 	"context"
+	"encoding/pem"
 	"log"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/FalcoSuessgott/vault-kubernetes-kms/pkg/testutils"
+	vaultapi "github.com/hashicorp/vault/api"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -16,6 +23,32 @@ type VaultSuite struct {
 
 	tc    *testutils.TestContainer
 	vault *Client
+}
+
+func TestNewClientUsesVaultCACert(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/v1/auth/token/lookup-self", r.URL.Path)
+
+		w.Header().Set("Content-Type", "application/json")
+		_, err := w.Write([]byte(`{"data":{"id":"root","ttl":3600,"creation_ttl":3600}}`))
+		require.NoError(t, err)
+	}))
+	defer server.Close()
+
+	cert := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: server.Certificate().Raw,
+	})
+	certFile := filepath.Join(t.TempDir(), "ca.crt")
+	require.NoError(t, os.WriteFile(certFile, cert, 0o600))
+
+	t.Setenv(vaultapi.EnvVaultCACert, certFile)
+
+	_, err := NewClient(
+		WithVaultAddress(server.URL),
+		WithTokenAuth("root"),
+	)
+	require.NoError(t, err)
 }
 
 func (s *VaultSuite) TearDownSubTest() {
